@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
                 self.kalman.statePost[:2] = measurement
             self.kalman.correct(measurement)
 
-            self.target.move(int(res[0]), int(res[1]))
+            self.target.move(x_pred, y_pred)
 
     def on_resize(self, event):
         super().resizeEvent(event)
