@@ -16,6 +16,7 @@ webcam = cv2.VideoCapture(0)
 X_train = []
 y_train = []
 
+kalman_array = []
 
 tmps = 0
 
@@ -35,6 +36,15 @@ class MainWindow(QMainWindow):
         self.buttonStart.setFixedWidth(200)
         self.buttonStart.setText("Start calibration...")
 
+        self.top_left = QCheckBox(self)
+        self.top_left.move(50, 50)
+        self.top_left.hide()
+        self.top_right = QCheckBox(self)
+        self.top_right.move(self.width()-50, 50)
+        self.top_right.hide()
+        self.bottom = QCheckBox(self)
+        self.bottom.move(int((self.width()-50)/2), self.height()-50)
+        self.bottom.hide()
 
         # Place checkboxes
         self.update_checkbox_positions()
@@ -47,6 +57,8 @@ class MainWindow(QMainWindow):
 
     def update_checkbox_positions(self):
         self.buttonStart.move(int(self.width()/2)-100, int(self.height()/2))
+        self.top_right.move(self.width()-50, 50)
+        self.bottom.move(int((self.width()-50)/2), self.height()-50)
 
     def onStart(self):
         self.buttonStart.setText("Follow the target")
@@ -80,12 +92,78 @@ class MainWindow(QMainWindow):
             X_train.append(features)
             y_train.append([x, y])
             self.target.move(int(x), int(y))
+
         if self.calibration_time_remaining < 0:
             print("Done")
             self.calibration_timer.stop()
             gaze.train(X_train, y_train)
-            self.tracking()
+
+            self.top_left.show()
+
+            self.kalman = cv2.KalmanFilter(4, 2)
+            self.kalman.measurementMatrix = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], np.float32)
+            self.kalman.transitionMatrix = np.array(
+                [[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]], np.float32
+            )
+            self.kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 1
+            self.kalman.measurementNoiseCov = np.eye(2, dtype=np.float32) * 1
+            self.kalman.statePre = np.zeros((4, 1), np.float32)
+            self.kalman.statePost = np.zeros((4, 1), np.float32)
+
+            self.kalman_t = 1
+            self.kalman_timer = QTimer(self)
+            self.kalman_timer.timeout.connect(self.kalman_tune)
+            self.kalman_timer.start(10)
         
+    def kalman_tune(self):
+        global gaze, kalman_array
+        self.kalman_t -= 0.01
+        if self.kalman_t < 0.5:
+            _, frame = webcam.read()
+            features, blink_detected = gaze.extract_features(frame)
+
+            while blink_detected or features is None:
+                _, frame = webcam.read()
+                features, blink_detected = gaze.extract_features(frame)
+            if not self.top_left.isChecked():
+                pred = gaze.predict([features])[0]
+                kalman_array.append([int(pred[0]),int(pred[1])])
+                if self.kalman_t < 0:
+                    self.top_left.setChecked(True)
+                    self.kalman_t = 1
+                    self.top_right.show()
+                    print("kalman for p1 done")
+            
+            elif not self.top_right.isChecked():
+                pred = gaze.predict([features])[0]
+                kalman_array.append([int(pred[0]),int(pred[1])])
+                if self.kalman_t < 0:
+                    self.top_right.setChecked(True)
+                    self.kalman_t = 1
+                    self.bottom.show()
+                    print("kalman for p2 done")
+            
+            elif not self.bottom.isChecked():
+                pred = gaze.predict([features])[0]
+                kalman_array.append([int(pred[0]),int(pred[1])])
+                if self.kalman_t < 0:
+                    self.bottom.setChecked(True)
+                    self.kalman_timer.stop()
+
+                    kalman_array = np.array(kalman_array)
+
+                    kalman_var = np.var(kalman_array, axis=0)
+                    kalman_var[kalman_var == 0] = 1e-4
+                    print(kalman_var)
+                    self.kalman.measurementNoiseCov = np.array(
+                        [[kalman_var[0], 0], [0, kalman_var[1]]], dtype=np.float32
+                    )
+                    print("Kalman done...")
+                    self.top_left.hide()
+                    self.top_right.hide()
+                    self.bottom.hide()
+                    self.tracking()
+
     def lissajous_curve(self, t, A, B, a, b, delta):
         x = A * np.sin(a * t + delta) + self.width() / 2
         y = B * np.sin(b * t) + self.height() / 2
@@ -94,10 +172,13 @@ class MainWindow(QMainWindow):
     def tracking(self):
 
         self.hide()
-        self.setStyleSheet("background: transparent;")
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
+        
         self.showMaximized()
+        self.repaint()  # Force a redraw
         self.target.setChecked(True)
 
         self.tracking_timer = QTimer(self)
@@ -115,16 +196,20 @@ class MainWindow(QMainWindow):
         if blink_detected or features is None:
             print("Stop blinking! (or be detectable pls)")
         else:
-            posh, posv = gaze.predict([features])[0]
+            res = gaze.predict([features])[0]
+            pred = self.kalman.predict()
+            x_pred, y_pred = int(pred[0]), int(pred[1])
 
-            prevh.append(posh)
-            prevv.append(posv)
+            x_pred = max(0, min(x_pred, self.width() - 1))
+            y_pred = max(0, min(y_pred, self.height() - 1))
 
-            if len(prevh) > 3:
-                prevh.pop(0)
-                prevv.pop(0)
+            measurement = np.array([[np.float32(res[0])], [np.float32(res[1])]])
+            if np.count_nonzero(self.kalman.statePre) == 0:
+                self.kalman.statePre[:2] = measurement
+                self.kalman.statePost[:2] = measurement
+            self.kalman.correct(measurement)
 
-            self.target.move(int(sum(prevh)/len(prevh)), int(sum(prevv)/len(prevv)))
+            self.target.move(int(res[0]), int(res[1]))
 
     def on_resize(self, event):
         super().resizeEvent(event)
@@ -147,10 +232,28 @@ class MainWindow(QMainWindow):
             background-color: transparent;
             border: 3px solid red;
         }
+
+        QCheckBox::indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;  /* Makes the indicator circular */
+            background-color: red;
+            border: 2px solid red;
+        }
+        QCheckBox::indicator:hover {
+            border: 2px solid gray;  /* Optional: Highlight border on hover */
+        }
+        QCheckBox::indicator:checked {
+            background-color: green;
+            border: 3px solid green;
+        }
         """
         self.target.setStyleSheet(style)
+        self.top_left.setStyleSheet(style)
+        self.top_right.setStyleSheet(style)
+        self.bottom.setStyleSheet(style)
 
 window = MainWindow()
-window.showMaximized() 
+window.showMaximized()
 
 app.exec()
