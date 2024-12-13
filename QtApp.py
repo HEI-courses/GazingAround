@@ -2,11 +2,17 @@ from gaze_estimator import GazeEstimator
 
 import cv2
 
+import active_window
+
 from PyQt6.QtCore import Qt, QTimer, QPoint
 from PyQt6.QtWidgets import QApplication, QMainWindow, QCheckBox, QPushButton, QRadioButton
 
 import sys
 import numpy as np
+
+import datetime
+
+import pandas as pd
 
 import cv2
 
@@ -25,6 +31,8 @@ prevv = []
 
 app = QApplication(sys.argv)
 
+window_getter = active_window.WindowGetter() #Class used to get the active window. /!\ Works on linux but not with Wayland window manager (use X11) /!\
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -35,6 +43,14 @@ class MainWindow(QMainWindow):
         self.buttonStart = QPushButton(self)
         self.buttonStart.setFixedWidth(200)
         self.buttonStart.setText("Start calibration...")
+
+        self.start_log_button = QPushButton(self)
+        self.start_log_button.setFixedWidth(200)
+        self.start_log_button.hide()
+
+        self.log_active = False
+
+        self.df = pd.DataFrame(columns=["time", "gaze", "app"])
 
         self.top_left = QCheckBox(self)
         self.top_left.move(50, 50)
@@ -59,11 +75,13 @@ class MainWindow(QMainWindow):
         self.buttonStart.move(int(self.width()/2)-100, int(self.height()/2))
         self.top_right.move(self.width()-50, 50)
         self.bottom.move(int((self.width()-50)/2), self.height()-50)
+        self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
+
 
     def onStart(self):
         self.buttonStart.setText("Follow the target")
 
-        self.calibration_time_remaining = 30
+        self.calibration_time_remaining = 5
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -75,7 +93,7 @@ class MainWindow(QMainWindow):
 
         features = None
         blink_detected = None
-        if self.calibration_time_remaining <= 29:
+        if self.calibration_time_remaining <= 4:
             self.buttonStart.hide()
             # get the frame from webcam
             _, frame = webcam.read()
@@ -87,8 +105,8 @@ class MainWindow(QMainWindow):
                 _, frame = webcam.read()
                 features, blink_detected = gaze.extract_features(frame)
         
-            tmps = tmps + 0.033
-            x, y = self.lissajous_curve(tmps, self.width()*0.5, self.height()*0.5, 3, 2, 0.033)
+            tmps = tmps + 0.015
+            x, y = self.lissajous_curve(tmps, (self.width()-100)*0.5, (self.height()-100)*0.5, 3, 2, 0.033)
             X_train.append(features)
             y_train.append([x, y])
             self.target.move(int(x), int(y))
@@ -162,7 +180,65 @@ class MainWindow(QMainWindow):
                     self.top_left.hide()
                     self.top_right.hide()
                     self.bottom.hide()
-                    self.tracking()
+
+                    #Choose tracking (for verifications) or logging (For runtime)
+                    # self.tracking()
+                    self.running()
+    
+    def running(self):
+        self.buttonStart.hide()
+        self.target.hide()
+        self.start_log_button.setText("Start recording gaze")
+        self.start_log_button.show()
+        self.start_log_button.pressed.connect(self.log_timer)
+
+    def log_timer(self):
+        if not self.log_active:
+            self.start_log_button.setText("Stop recording...")
+            self.log_active = True
+            self.timer_log = QTimer(self)
+            self.timer_log.timeout.connect(self.log)
+            self.timer_log.start(100) #log gaze 10x by sec.
+        else:
+            self.timer_log.stop()
+            print(self.df)
+
+    def log(self):
+        global gaze
+        _, frame = webcam.read()
+
+        features, blink_detected = gaze.extract_features(frame)
+
+        while blink_detected or features is None:
+                _, frame = webcam.read()
+                features, blink_detected = gaze.extract_features(frame)
+        
+        res = gaze.predict([features])[0]
+        pred = self.kalman.predict()
+
+        x_pred, y_pred = int(pred[0]), int(pred[1])
+
+        x_pred = max(0, min(x_pred, self.width() - 1))
+        y_pred = max(0, min(y_pred, self.height() - 1))
+
+        measurement = np.array([[np.float32(res[0])], [np.float32(res[1])]])
+
+        if np.count_nonzero(self.kalman.statePre) == 0:
+            self.kalman.statePre[:2] = measurement
+            self.kalman.statePost[:2] = measurement
+
+        self.kalman.correct(measurement)
+
+        process = window_getter.get_activityname()['processname2']
+
+        log_dict = {
+            'time': datetime.datetime.now().isoformat(),
+            'gaze': (x_pred, y_pred),
+            'app': process
+        }
+
+        self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gaze'], log_dict['app']]
+
 
     def lissajous_curve(self, t, A, B, a, b, delta):
         x = A * np.sin(a * t + delta) + self.width() / 2

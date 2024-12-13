@@ -10,6 +10,7 @@ Please install the required libraries:
 ```shell
 pip install -r requirements.txt
 pip install PyQt6
+pip install pandas
 ```
 
 # Running the app
