@@ -4,8 +4,10 @@ import cv2
 
 import active_window
 
+import math
+
 from PyQt6.QtCore import Qt, QTimer, QPoint
-from PyQt6.QtWidgets import QApplication, QMainWindow, QCheckBox, QPushButton, QRadioButton
+from PyQt6.QtWidgets import QApplication, QMainWindow, QCheckBox, QPushButton, QRadioButton, QComboBox, QButtonGroup, QLineEdit, QLabel
 
 import sys
 import numpy as np
@@ -16,6 +18,11 @@ import pandas as pd
 
 import cv2
 
+import create_reports
+
+report_creator = create_reports.ReportGenerator()
+
+
 gaze = GazeEstimator()
 webcam = cv2.VideoCapture(0)
 
@@ -25,6 +32,8 @@ y_train = []
 kalman_array = []
 
 tmps = 0
+
+acc = []
 
 prevh = []
 prevv = []
@@ -39,6 +48,12 @@ class MainWindow(QMainWindow):
 
         self.target = QRadioButton(self)
         self.target.move(QPoint(0,0))
+        self.target.hide()
+
+        self.intro_text = QLabel(self)
+        self.intro_text.setText("Welcome to Gazing Around! \nThe goal of this app is to analyse gaze patterns using the laptop's \nwebcam. Please proceed to the calibration. First, you have to follow \nthe white dot. Then You have to fix the red dots until they become green. \nThe red dots will appear top left, top right and bottom in that order.")
+        self.intro_text.setFixedSize(500, 100)
+        self.intro_text.show()
 
         self.buttonStart = QPushButton(self)
         self.buttonStart.setFixedWidth(200)
@@ -71,14 +86,20 @@ class MainWindow(QMainWindow):
         # Connect window resize event to update positions
         self.resizeEvent = self.on_resize
 
+        #for i in self.children():
+        #    try:
+        #        i.hide()
+        #    except: pass
+        #self.report_settings()
+
     def update_checkbox_positions(self):
         self.buttonStart.move(int(self.width()/2)-100, int(self.height()/2))
         self.top_right.move(self.width()-50, 50)
         self.bottom.move(int((self.width()-50)/2), self.height()-50)
-        self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
-
+        self.intro_text.move(int(self.width()/2 - 250), int(self.height()/2-150))
 
     def onStart(self):
+        self.intro_text.hide()
         self.buttonStart.setText("Follow the target")
 
         self.calibration_time_remaining = 5
@@ -94,6 +115,7 @@ class MainWindow(QMainWindow):
         features = None
         blink_detected = None
         if self.calibration_time_remaining <= 4:
+            self.target.show()
             self.buttonStart.hide()
             # get the frame from webcam
             _, frame = webcam.read()
@@ -113,6 +135,7 @@ class MainWindow(QMainWindow):
 
         if self.calibration_time_remaining < 0:
             print("Done")
+            self.target.hide()
             self.calibration_timer.stop()
             gaze.train(X_train, y_train)
 
@@ -132,9 +155,13 @@ class MainWindow(QMainWindow):
             self.kalman_timer = QTimer(self)
             self.kalman_timer.timeout.connect(self.kalman_tune)
             self.kalman_timer.start(10)
-        
+    
+    def dist(self, xp, yp, xi, yi):
+        return(math.sqrt((xp-xi)**2+(yp-yi)**2))
+
     def kalman_tune(self):
-        global gaze, kalman_array
+        global gaze, kalman_array, acc
+        self.df.loc[0] = (0, (self.width(), self.height()), "None")
         self.kalman_t -= 0.01
         if self.kalman_t < 0.5:
             _, frame = webcam.read()
@@ -146,6 +173,12 @@ class MainWindow(QMainWindow):
             if not self.top_left.isChecked():
                 pred = gaze.predict([features])[0]
                 kalman_array.append([int(pred[0]),int(pred[1])])
+
+                if self.dist(self.top_left.pos().x() + 10, self.top_left.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
+                    acc.append(1)
+                else:
+                    acc.append(0)
+
                 if self.kalman_t < 0:
                     self.top_left.setChecked(True)
                     self.kalman_t = 1
@@ -155,6 +188,12 @@ class MainWindow(QMainWindow):
             elif not self.top_right.isChecked():
                 pred = gaze.predict([features])[0]
                 kalman_array.append([int(pred[0]),int(pred[1])])
+
+                if self.dist(self.top_right.pos().x() + 10, self.top_right.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
+                    acc.append(1)
+                else:
+                    acc.append(0)
+
                 if self.kalman_t < 0:
                     self.top_right.setChecked(True)
                     self.kalman_t = 1
@@ -164,6 +203,12 @@ class MainWindow(QMainWindow):
             elif not self.bottom.isChecked():
                 pred = gaze.predict([features])[0]
                 kalman_array.append([int(pred[0]),int(pred[1])])
+
+                if self.dist(self.bottom.pos().x() + 10, self.bottom.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
+                    acc.append(1)
+                else:
+                    acc.append(0)
+
                 if self.kalman_t < 0:
                     self.bottom.setChecked(True)
                     self.kalman_timer.stop()
@@ -186,22 +231,52 @@ class MainWindow(QMainWindow):
                     self.running()
     
     def running(self):
+        global acc
+        right = 0
+        tot = 0
+        for i in acc:
+            if i == 1:
+                right += 1
+            tot += 1
+        est = (right/tot)*100
         self.buttonStart.hide()
         self.target.hide()
+
+        self.calibrate_text = QLabel(self)
+        self.calibrate_text.setText(f"Calibration done! Accuracy estimate: {int(est)}%")
+        self.calibrate_text.setFixedWidth(300)
+        self.calibrate_text.move(int(self.width()/2 - 150), int(self.height()/2-50))
+        self.calibrate_text.show()
         self.start_log_button.setText("Start recording gaze")
+        self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
         self.start_log_button.show()
         self.start_log_button.pressed.connect(self.log_timer)
 
     def log_timer(self):
         if not self.log_active:
             self.start_log_button.setText("Stop recording...")
+            self.start_log_button.setFixedWidth(150)
             self.log_active = True
             self.timer_log = QTimer(self)
             self.timer_log.timeout.connect(self.log)
             self.timer_log.start(100) #log gaze 10x by sec.
+            
+            self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+            self.hide()
+            self.setGeometry(200, 30, 160, 70)
+            self.setFixedHeight(32)
+            self.setFixedWidth(160)
+            self.start_log_button.move(5,1)
+            self.show()
+            self.update()
+            
+
         else:
             self.timer_log.stop()
-            print(self.df)
+            self.start_log_button.hide()
+            self.log_active = False
+            self.df.to_csv("log.csv")
+            self.report_settings()
 
     def log(self):
         global gaze
@@ -232,13 +307,93 @@ class MainWindow(QMainWindow):
         process = window_getter.get_activityname()['processname2']
 
         log_dict = {
-            'time': datetime.datetime.now().isoformat(),
+            'time': datetime.datetime.now(),
             'gaze': (x_pred, y_pred),
             'app': process
         }
 
-        self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gaze'], log_dict['app']]
+        if log_dict['app'] is not None:
 
+            self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gaze'], log_dict['app']]
+
+    def report_settings(self):
+        self.button_group1 = QButtonGroup(self)
+        self.button_group2 = QButtonGroup(self)
+
+        self.all_apps = QRadioButton(self)
+        self.all_apps.setFixedWidth(500)
+        self.all_apps.setText("Generate reports for all apps")
+        self.button_group1.addButton(self.all_apps)
+        self.specific_app = QRadioButton(self)
+        self.specific_app.setFixedWidth(500)
+        self.specific_app.setText("Generate reports for specific app (Choose from menu)")
+        self.button_group1.addButton(self.specific_app)
+        
+        self.choose_app = QComboBox(self)
+        for i in self.df["app"].unique():
+            self.choose_app.addItem(i)
+
+        self.create_one = QRadioButton(self)
+        self.create_one.setFixedWidth(500)
+        self.create_one.setText("Create one report by app")
+        self.button_group2.addButton(self.create_one)
+        self.create_time = QRadioButton(self)
+        self.create_time.setFixedWidth(500)
+        self.create_time.setText("Create multiple reports by app, specify time interval")
+        self.button_group2.addButton(self.create_time)
+        self.time_box = QLineEdit(self)
+        self.time_box.setFixedWidth(150)
+        self.time_box.setText("Time interval (min)")
+
+        self.discard_button = QPushButton(self)
+        self.discard_button.setFixedWidth(150)
+        self.discard_button.setText("Discard report")
+        self.generate_button = QPushButton(self)
+        self.generate_button.setFixedWidth(150)
+        self.generate_button.setText("Generate")
+
+        self.all_apps.move(30, 40)
+        self.specific_app.move(30, 80)
+        self.choose_app.move(30, 120)
+
+        self.create_one.move(30, 160)
+        self.create_time.move(30, 200)
+        self.time_box.move(30, 240)
+
+        self.discard_button.move(30, 280)
+        self.generate_button.move(200, 280)
+        self.setFixedHeight(350)
+        self.setFixedWidth(440)
+
+        self.all_apps.show()
+        self.specific_app.show()
+        self.choose_app.show()
+        self.create_one.show()
+        self.create_time.show()
+        self.time_box.show()
+        self.discard_button.show()
+        self.generate_button.show()
+        self.hide()
+        self.show()
+
+        self.discard_button.pressed.connect(self.running_again)
+        self.generate_button.pressed.connect(self.report_gen)
+
+    def running_again(self):
+        self.df = pd.DataFrame(columns=["time", "gaze", "app"])
+        for i in self.children():
+            try:
+                i.hide()
+            except: pass
+
+        self.start_log_button.setText("Start recording gaze")
+        self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
+        self.start_log_button.show()
+
+
+    def report_gen(self):
+        global report_creator
+        
 
     def lissajous_curve(self, t, A, B, a, b, delta):
         x = A * np.sin(a * t + delta) + self.width() / 2

@@ -9,9 +9,6 @@ class WindowGetter:
         stdout, stderr = root.communicate()
         m = re.search( b'^_NET_ACTIVE_WINDOW.* ([\w]+)$', stdout )
 
-        print(stdout)
-        print(m)
-
         if m is not None:
 
             window_id   = m.group( 1 )
