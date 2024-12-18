@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
 
         self.log_active = False
 
-        self.df = pd.DataFrame(columns=["time", "gaze", "app"])
+        self.df = pd.DataFrame(columns=["time", "gazex", "gazey", "app"])
 
         self.top_left = QCheckBox(self)
         self.top_left.move(50, 50)
@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         self.intro_text.hide()
         self.buttonStart.setText("Follow the target")
 
-        self.calibration_time_remaining = 5
+        self.calibration_time_remaining = 30
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -114,7 +114,7 @@ class MainWindow(QMainWindow):
 
         features = None
         blink_detected = None
-        if self.calibration_time_remaining <= 4:
+        if self.calibration_time_remaining <= 29:
             self.target.show()
             self.buttonStart.hide()
             # get the frame from webcam
@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
 
     def kalman_tune(self):
         global gaze, kalman_array, acc
-        self.df.loc[0] = (0, (self.width(), self.height()), "None")
+        self.df.loc[0] = [0, self.width(), self.height(), "None"]
         self.kalman_t -= 0.01
         if self.kalman_t < 0.5:
             _, frame = webcam.read()
@@ -293,8 +293,8 @@ class MainWindow(QMainWindow):
 
         x_pred, y_pred = int(pred[0]), int(pred[1])
 
-        x_pred = max(0, min(x_pred, self.width() - 1))
-        y_pred = max(0, min(y_pred, self.height() - 1))
+        x_pred = max(0, min(x_pred, int(self.df.iloc[0]['gazex']) - 1))
+        y_pred = max(0, min(y_pred, int(self.df.iloc[0]['gazey']) - 1))
 
         measurement = np.array([[np.float32(res[0])], [np.float32(res[1])]])
 
@@ -308,13 +308,14 @@ class MainWindow(QMainWindow):
 
         log_dict = {
             'time': datetime.datetime.now(),
-            'gaze': (x_pred, y_pred),
+            'gazex': x_pred,
+            'gazey': y_pred,
             'app': process
         }
 
         if log_dict['app'] is not None:
 
-            self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gaze'], log_dict['app']]
+            self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gazex'], log_dict['gazey'], log_dict['app']]
 
     def report_settings(self):
         self.button_group1 = QButtonGroup(self)
@@ -380,7 +381,7 @@ class MainWindow(QMainWindow):
         self.generate_button.pressed.connect(self.report_gen)
 
     def running_again(self):
-        self.df = pd.DataFrame(columns=["time", "gaze", "app"])
+        self.df = pd.DataFrame(columns=["time", "gazex", "gazey", "app"])
         for i in self.children():
             try:
                 i.hide()
