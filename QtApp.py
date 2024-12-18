@@ -77,9 +77,27 @@ class MainWindow(QMainWindow):
         self.bottom.move(int((self.width()-50)/2), self.height()-50)
         self.bottom.hide()
 
+        index = 0
+        arr = []
+        i = 10
+        while i > 0:
+            cap = cv2.VideoCapture(index)
+            if cap.read()[0]:
+                arr.append(index)
+                cap.release()
+            index += 1
+            i -= 1
+        
+        self.cam_select = QComboBox(self)
+        for i in arr:
+            self.cam_select.addItem(f"Webcam {i}")
+        self.cam_select.setFixedWidth(200)
+
         # Place checkboxes
         self.update_checkbox_positions()
         self.set_checkbox_styles()
+
+        
 
         self.buttonStart.pressed.connect(self.onStart)
 
@@ -97,9 +115,11 @@ class MainWindow(QMainWindow):
         self.top_right.move(self.width()-50, 50)
         self.bottom.move(int((self.width()-50)/2), self.height()-50)
         self.intro_text.move(int(self.width()/2 - 250), int(self.height()/2-150))
+        self.cam_select.move(int(self.width()/2)-100, int(self.height()/2)+30)
 
     def onStart(self):
         self.intro_text.hide()
+        self.cam_select.hide()
         self.buttonStart.setText("Follow the target")
 
         self.calibration_time_remaining = 30
@@ -251,6 +271,29 @@ class MainWindow(QMainWindow):
         self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
         self.start_log_button.show()
         self.start_log_button.pressed.connect(self.log_timer)
+        self.restart_calibrate = QPushButton(self)
+        self.restart_calibrate.setText("Recalibrate")
+        self.restart_calibrate.move(int(self.width()/2 - self.restart_calibrate.width()/2), int(self.height()/2+30))
+        self.restart_calibrate.show()
+        self.restart_calibrate.pressed.connect(self.calibrate2)
+    
+    def calibrate2(self):
+        global kalman_array, acc
+        self.calibrate_text.hide()
+        self.start_log_button.hide()
+        self.restart_calibrate.hide()
+        self.top_left.setChecked(False)
+        self.top_right.setChecked(False)
+        self.bottom.setChecked(False)
+
+        kalman_array = []
+        acc = []
+
+        self.calibration_time_remaining = 30
+
+        self.calibration_timer = QTimer(self)
+        self.calibration_timer.timeout.connect(self.calibrate)
+        self.calibration_timer.start(33)  # 33 ms interval (30fps)
 
     def log_timer(self):
         if not self.log_active:
