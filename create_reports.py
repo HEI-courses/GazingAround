@@ -66,4 +66,4 @@ class ReportGenerator:
 if __name__ == '__main__':
     report = ReportGenerator()
     df = report.from_file()
-    report.filter_data(df, time_interval=2)
+    report.filter_data(df, "firefox", time_interval=2)

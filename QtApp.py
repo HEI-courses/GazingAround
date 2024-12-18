@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
         self.cam_select.hide()
         self.buttonStart.setText("Follow the target")
 
-        self.calibration_time_remaining = 30
+        self.calibration_time_remaining = 5
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
 
         features = None
         blink_detected = None
-        if self.calibration_time_remaining <= 29:
+        if self.calibration_time_remaining <= 4:
             self.target.show()
             self.buttonStart.hide()
             # get the frame from webcam
@@ -285,11 +285,12 @@ class MainWindow(QMainWindow):
         self.top_left.setChecked(False)
         self.top_right.setChecked(False)
         self.bottom.setChecked(False)
+        self.start_log_button.pressed.disconnect()
 
         kalman_array = []
         acc = []
 
-        self.calibration_time_remaining = 30
+        self.calibration_time_remaining = 5
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -297,6 +298,7 @@ class MainWindow(QMainWindow):
 
     def log_timer(self):
         if not self.log_active:
+            self.start_log_button.show()
             self.start_log_button.setText("Stop recording...")
             self.start_log_button.setFixedWidth(150)
             self.log_active = True
