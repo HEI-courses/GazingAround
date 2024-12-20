@@ -11,6 +11,8 @@ Please install the required libraries:
 pip install -r requirements.txt
 pip install PyQt6
 pip install pandas
+pip install seaborn
+pip install fpdf
 ```
 
 # Running the app

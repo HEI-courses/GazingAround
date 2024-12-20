@@ -33,7 +33,7 @@ kalman_array = []
 
 tmps = 0
 
-acc = []
+acc = [0,1]
 
 prevh = []
 prevv = []
@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         index = 0
         arr = []
         i = 10
-        while i > 0:
+        while i > 0: # we use this to get all the available webcams
             cap = cv2.VideoCapture(index)
             if cap.read()[0]:
                 arr.append(index)
@@ -104,13 +104,8 @@ class MainWindow(QMainWindow):
         # Connect window resize event to update positions
         self.resizeEvent = self.on_resize
 
-        #for i in self.children():
-        #    try:
-        #        i.hide()
-        #    except: pass
-        #self.report_settings()
 
-    def update_checkbox_positions(self):
+    def update_checkbox_positions(self): #update the positions of widgets when window size chanages
         self.buttonStart.move(int(self.width()/2)-100, int(self.height()/2))
         self.top_right.move(self.width()-50, 50)
         self.bottom.move(int((self.width()-50)/2), self.height()-50)
@@ -122,7 +117,7 @@ class MainWindow(QMainWindow):
         self.cam_select.hide()
         self.buttonStart.setText("Follow the target")
 
-        self.calibration_time_remaining = 5
+        self.calibration_time_remaining = 30
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -134,7 +129,7 @@ class MainWindow(QMainWindow):
 
         features = None
         blink_detected = None
-        if self.calibration_time_remaining <= 4:
+        if self.calibration_time_remaining <= 29:
             self.target.show()
             self.buttonStart.hide()
             # get the frame from webcam
@@ -148,6 +143,7 @@ class MainWindow(QMainWindow):
                 features, blink_detected = gaze.extract_features(frame)
         
             tmps = tmps + 0.015
+            #Lissajous curve user must follow to train the model
             x, y = self.lissajous_curve(tmps, (self.width()-100)*0.5, (self.height()-100)*0.5, 3, 2, 0.033)
             X_train.append(features)
             y_train.append([x, y])
@@ -157,6 +153,7 @@ class MainWindow(QMainWindow):
             print("Done")
             self.target.hide()
             self.calibration_timer.stop()
+            #Train model with data collected
             gaze.train(X_train, y_train)
 
             self.top_left.show()
@@ -171,63 +168,82 @@ class MainWindow(QMainWindow):
             self.kalman.statePre = np.zeros((4, 1), np.float32)
             self.kalman.statePost = np.zeros((4, 1), np.float32)
 
-            self.kalman_t = 1
+            self.kalman_t = 6
             self.kalman_timer = QTimer(self)
             self.kalman_timer.timeout.connect(self.kalman_tune)
-            self.kalman_timer.start(10)
+            self.kalman_timer.start(100)
     
     def dist(self, xp, yp, xi, yi):
         return(math.sqrt((xp-xi)**2+(yp-yi)**2))
 
+    #kalman filter for fine tunning
     def kalman_tune(self):
         global gaze, kalman_array, acc
+        self.target.setChecked(True)
+        self.target.show()
         self.df.loc[0] = [0, self.width(), self.height(), "None"]
-        self.kalman_t -= 0.01
-        if self.kalman_t < 0.5:
+        self.kalman_t -= 0.1
+        _, frame = webcam.read()
+        features, blink_detected = gaze.extract_features(frame)
+
+        while blink_detected or features is None:
             _, frame = webcam.read()
             features, blink_detected = gaze.extract_features(frame)
+        pred = gaze.predict([features])[0]
+        self.target.move(int(pred[0]), int(pred[1]))
 
-            while blink_detected or features is None:
-                _, frame = webcam.read()
-                features, blink_detected = gaze.extract_features(frame)
+        if self.kalman_t < 5:
             if not self.top_left.isChecked():
                 pred = gaze.predict([features])[0]
-                kalman_array.append([int(pred[0]),int(pred[1])])
 
-                if self.dist(self.top_left.pos().x() + 10, self.top_left.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
-                    acc.append(1)
-                else:
-                    acc.append(0)
+                while self.dist(self.top_left.pos().x() + 10, self.top_left.pos().y() + 10, int(pred[0]), int(pred[1])) > 100:
+                    _, frame = webcam.read()
+                    features, blink_detected = gaze.extract_features(frame)
+                    while blink_detected or features is None:
+                        _, frame = webcam.read()
+                        features, blink_detected = gaze.extract_features(frame)
+                    pred = gaze.predict([features])[0]
+
+                print("yeah")
+                kalman_array.append([int(pred[0]),int(pred[1])])
 
                 if self.kalman_t < 0:
                     self.top_left.setChecked(True)
-                    self.kalman_t = 1
+                    self.kalman_t = 6
                     self.top_right.show()
                     print("kalman for p1 done")
             
             elif not self.top_right.isChecked():
                 pred = gaze.predict([features])[0]
-                kalman_array.append([int(pred[0]),int(pred[1])])
 
-                if self.dist(self.top_right.pos().x() + 10, self.top_right.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
-                    acc.append(1)
-                else:
-                    acc.append(0)
+                while self.dist(self.top_right.pos().x() + 10, self.top_right.pos().y() + 10, int(pred[0]), int(pred[1])) > 100:
+                    _, frame = webcam.read()
+                    features, blink_detected = gaze.extract_features(frame)
+                    while blink_detected or features is None:
+                        _, frame = webcam.read()
+                        features, blink_detected = gaze.extract_features(frame)
+                    pred = gaze.predict([features])[0]
+
+                kalman_array.append([int(pred[0]),int(pred[1])])
 
                 if self.kalman_t < 0:
                     self.top_right.setChecked(True)
-                    self.kalman_t = 1
+                    self.kalman_t = 6
                     self.bottom.show()
                     print("kalman for p2 done")
             
             elif not self.bottom.isChecked():
                 pred = gaze.predict([features])[0]
-                kalman_array.append([int(pred[0]),int(pred[1])])
 
-                if self.dist(self.bottom.pos().x() + 10, self.bottom.pos().y() + 10, int(pred[0]), int(pred[1])) < 100:
-                    acc.append(1)
-                else:
-                    acc.append(0)
+                while self.dist(self.bottom.pos().x() + 10, self.bottom.pos().y() + 10, int(pred[0]), int(pred[1])) > 100:
+                    _, frame = webcam.read()
+                    features, blink_detected = gaze.extract_features(frame)
+                    while blink_detected or features is None:
+                        _, frame = webcam.read()
+                        features, blink_detected = gaze.extract_features(frame)
+                    pred = gaze.predict([features])[0]
+
+                kalman_array.append([int(pred[0]),int(pred[1])])
 
                 if self.kalman_t < 0:
                     self.bottom.setChecked(True)
@@ -290,7 +306,7 @@ class MainWindow(QMainWindow):
         kalman_array = []
         acc = []
 
-        self.calibration_time_remaining = 5
+        self.calibration_time_remaining = 30
 
         self.calibration_timer = QTimer(self)
         self.calibration_timer.timeout.connect(self.calibrate)
@@ -338,8 +354,8 @@ class MainWindow(QMainWindow):
 
         x_pred, y_pred = int(pred[0]), int(pred[1])
 
-        x_pred = max(0, min(x_pred, int(self.df.iloc[0]['gazex']) - 1))
-        y_pred = max(0, min(y_pred, int(self.df.iloc[0]['gazey']) - 1))
+        #x_pred = max(0, min(x_pred, int(self.df.iloc[0]['gazex']) - 1)) #we dont lock the gaze into the screen anymore
+        #y_pred = max(0, min(y_pred, int(self.df.iloc[0]['gazey']) - 1)) #to detect gazes outside of the screen
 
         measurement = np.array([[np.float32(res[0])], [np.float32(res[1])]])
 
@@ -389,7 +405,7 @@ class MainWindow(QMainWindow):
         self.button_group2.addButton(self.create_time)
         self.time_box = QLineEdit(self)
         self.time_box.setFixedWidth(150)
-        self.time_box.setText("Time interval (min)")
+        self.time_box.setText("Time interval (sec)")
 
         self.discard_button = QPushButton(self)
         self.discard_button.setFixedWidth(150)
@@ -439,7 +455,20 @@ class MainWindow(QMainWindow):
 
     def report_gen(self):
         global report_creator
-        
+        print(self.df)
+        if self.specific_app.isChecked():
+            if self.create_one.isChecked():
+                app = self.choose_app.currentText()
+                report_creator.from_df(self.df, app)
+            else:
+                report_creator.from_df(self.df, app, int(self.time_box.text()))
+        else:
+            if self.create_one.isChecked():
+                print("i")
+                report_creator.from_df(self.df)
+            else:
+                report_creator.from_df(self.df, time_interval = int(self.time_box.text()))
+                
 
     def lissajous_curve(self, t, A, B, a, b, delta):
         x = A * np.sin(a * t + delta) + self.width() / 2
@@ -457,6 +486,7 @@ class MainWindow(QMainWindow):
         self.showMaximized()
         self.repaint()  # Force a redraw
         self.target.setChecked(True)
+        self.target.show()
 
         self.tracking_timer = QTimer(self)
         self.tracking_timer.timeout.connect(self.tracking_step)
