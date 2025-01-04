@@ -7,6 +7,7 @@ import os.path
 class ReportGenerator:
     def __init__(self):
         pass
+    # create report from a saved log file
     def from_file(self):
         df = pd.read_csv("log.csv")
         self.width = int(df.iloc[0]['gazex'])
@@ -18,6 +19,7 @@ class ReportGenerator:
         self.options = "nan"
         return df
     
+    #used to create a report from a pandas dataframe
     def from_df(self, df, app = None, time_interval = None):
         self.width = int(df.iloc[0]['gazex'])
         self.height = int(df.iloc[0]['gazey'])
@@ -58,6 +60,7 @@ class ReportGenerator:
 
         return grid_values, in_out
     
+    #creates the data for the pdf from the data from a df
     def write_report(self, df:pd.DataFrame):
         heatmap, in_out = self.generate_heatmap(df)
         if df.empty: return
@@ -89,6 +92,7 @@ class ReportGenerator:
         hm.savefig("heatmap.png")
         self.create_pdf([time_str, start_str, date_str, app, in_out, time_str_out])
     
+    #creating the pdf
     def create_pdf(self, data):
         pdf = FPDF()
         pdf.add_page()
@@ -121,7 +125,8 @@ class ReportGenerator:
                 pdf.output(f"report{file_nbr}.pdf", 'F')
                 break
 
-
+    
+    # Data filtering and creation of dataframes for specified settings
     def filter_data(self, df:pd.DataFrame, app:str = None, time_interval:int = None):
         if app is None:
             time_interval = time_interval+0.1

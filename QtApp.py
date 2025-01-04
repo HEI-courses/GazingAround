@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.intro_text.move(int(self.width()/2 - 250), int(self.height()/2-150))
         self.cam_select.move(int(self.width()/2)-100, int(self.height()/2)+30)
 
-    def onStart(self):
+    def onStart(self): #starting calibration step
         self.intro_text.hide()
         self.cam_select.hide()
         self.buttonStart.setText("Follow the target")
@@ -123,7 +123,7 @@ class MainWindow(QMainWindow):
         self.calibration_timer.timeout.connect(self.calibrate)
         self.calibration_timer.start(33)  # 33 ms interval (30fps)
 
-    def calibrate(self):
+    def calibrate(self): #Calibration step, face data gathering, model training
         global tmps, gaze, X_train, y_train
         self.calibration_time_remaining -= 0.033
 
@@ -266,6 +266,7 @@ class MainWindow(QMainWindow):
                     # self.tracking()
                     self.running()
     
+    # Screen after calibration, launch gaze recording or retrain model
     def running(self):
         global acc
         right = 0
@@ -293,6 +294,7 @@ class MainWindow(QMainWindow):
         self.restart_calibrate.show()
         self.restart_calibrate.pressed.connect(self.calibrate2)
     
+    # used to restart the calibration
     def calibrate2(self):
         global kalman_array, acc
         self.calibrate_text.hide()
@@ -312,6 +314,7 @@ class MainWindow(QMainWindow):
         self.calibration_timer.timeout.connect(self.calibrate)
         self.calibration_timer.start(33)  # 33 ms interval (30fps)
 
+    #Setting up the logging phase
     def log_timer(self):
         if not self.log_active:
             self.start_log_button.show()
@@ -339,6 +342,7 @@ class MainWindow(QMainWindow):
             self.df.to_csv("log.csv")
             self.report_settings()
 
+    #logging phase, 10x by second
     def log(self):
         global gaze
         _, frame = webcam.read()
@@ -367,6 +371,7 @@ class MainWindow(QMainWindow):
 
         process = window_getter.get_activityname()['processname2']
 
+        #saving the data into a dictionnary
         log_dict = {
             'time': datetime.datetime.now(),
             'gazex': x_pred,
@@ -374,10 +379,12 @@ class MainWindow(QMainWindow):
             'app': process
         }
 
+        # If we are on an app we can get, log the data into a pandas dataframe
         if log_dict['app'] is not None:
 
             self.df.loc[len(self.df)] = [log_dict['time'], log_dict['gazex'], log_dict['gazey'], log_dict['app']]
 
+    #screen to choose the reports settings
     def report_settings(self):
         self.button_group1 = QButtonGroup(self)
         self.button_group2 = QButtonGroup(self)
@@ -441,6 +448,7 @@ class MainWindow(QMainWindow):
         self.discard_button.pressed.connect(self.running_again)
         self.generate_button.pressed.connect(self.report_gen)
 
+    # used to restart the data recording
     def running_again(self):
         self.df = pd.DataFrame(columns=["time", "gazex", "gazey", "app"])
         for i in self.children():
@@ -452,7 +460,7 @@ class MainWindow(QMainWindow):
         self.start_log_button.move(int(self.width()/2 - self.start_log_button.width()/2), int(self.height()/2))
         self.start_log_button.show()
 
-
+    # Launches the report creator with specified settings
     def report_gen(self):
         global report_creator
         print(self.df)
@@ -464,7 +472,6 @@ class MainWindow(QMainWindow):
                 report_creator.from_df(self.df, app, int(self.time_box.text()))
         else:
             if self.create_one.isChecked():
-                print("i")
                 report_creator.from_df(self.df)
             else:
                 report_creator.from_df(self.df, time_interval = int(self.time_box.text()))
@@ -475,6 +482,7 @@ class MainWindow(QMainWindow):
         y = B * np.sin(b * t) + self.height() / 2
         return x, y
     
+    #Screen for eyetracking app on the screen, used to test accuracy in developpement
     def tracking(self):
 
         self.hide()

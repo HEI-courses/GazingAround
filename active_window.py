@@ -1,7 +1,7 @@
 import os, re, sys, time
 from subprocess import PIPE, Popen
 
-
+# Class used to get the current active app, works on linux with X11 window manager
 class WindowGetter:
     def get_activityname(self):
 
