@@ -112,7 +112,8 @@ class ReportGenerator:
         pdf.cell(10, 20, f"{data[1]} on {data[2]}")
         pdf.cell(-10)
         ratio = (data[4][1]/data[4][0])*100
-        pdf.cell(10, 30, f"Ratio of gazes out of the screen: {"%.2f" % ratio}%, ")
+        #pdf.cell(10, 30, f"Ratio of gazes out of the screen: {"%.2f" % ratio}%, ")
+        pdf.cell(10, 30, f"Ratio of gazes out of the screen: {'%.2f' % ratio}%, ")
         pdf.cell(-10)
         pdf.cell(10, 40, data[5])
         pdf.cell(-10)
